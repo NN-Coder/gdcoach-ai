@@ -54,37 +54,119 @@ bool CoachLayer::init() {
     divider->setPosition({ 20.f, POPUP_HEIGHT - 44.f });
     m_mainLayer->addChild(divider);
 
+    // ── Chat Scroll Layer ────────────────────────────────────────────────────
+    auto scrollSize = CCSize{ POPUP_WIDTH - 40.f, POPUP_HEIGHT - 100.f };
+    m_chatScroll = ScrollLayer::create(scrollSize);
+    m_chatScroll->setPosition({ 20.f, 50.f });
+    m_mainLayer->addChild(m_chatScroll);
+
+    // ── Text Input ───────────────────────────────────────────────────────────
+    m_textInput = TextInput::create(scrollSize.width - 60.f, "Ask for advice...");
+    m_textInput->setPosition({ POPUP_WIDTH / 2.f - 20.f, 25.f });
+    m_mainLayer->addChild(m_textInput);
+
+    // ── Submit Button ────────────────────────────────────────────────────────
+    auto* submitBtnSprite = ButtonSprite::create("Send", "goldFont.fnt", "GJ_button_01.png", 0.6f);
+    auto* submitBtn = CCMenuItemSpriteExtra::create(submitBtnSprite, this, menu_selector(CoachLayer::onSubmit));
+    auto* submitMenu = CCMenu::create();
+    submitMenu->setPosition({ POPUP_WIDTH - 35.f, 25.f });
+    submitMenu->addChild(submitBtn);
+    m_mainLayer->addChild(submitMenu);
+
     // ── Spinner ───────────────────────────────────────────────────────────────
     auto* spinner = CCSprite::createWithSpriteFrameName("loadingCircle.png");
     spinner->setBlendFunc({ GL_SRC_ALPHA, GL_ONE });
-    spinner->setPosition({ POPUP_WIDTH / 2.f, POPUP_HEIGHT / 2.f - 10.f });
+    spinner->setPosition({ POPUP_WIDTH / 2.f, POPUP_HEIGHT / 2.f });
     spinner->setScale(0.6f);
     m_mainLayer->addChild(spinner, 5, 100 /* tag */);
     m_spinnerNode = spinner;
-    startSpinner();
+    stopSpinner();
 
     // ── Status label ─────────────────────────────────────────────────────────
-    auto* status = CCLabelBMFont::create("Analyzing your session...", "chatFont.fnt");
-    status->setColor({ 200, 200, 200 });
+    auto* status = CCLabelBMFont::create("", "chatFont.fnt");
+    status->setColor({ 255, 120, 120 });
     status->setScale(0.55f);
     status->setPosition({ POPUP_WIDTH / 2.f, POPUP_HEIGHT / 2.f - 60.f });
+    status->setVisible(false);
     m_mainLayer->addChild(status, 5);
     m_statusLabel = status;
 
-    // ── Response label (hidden until data arrives) ─────────────────────────
-    auto* responseLabel = CCLabelBMFont::create("", "chatFont.fnt");
-    responseLabel->setScale(0.5f);
-    responseLabel->setColor({ 230, 230, 230 });
-    responseLabel->setAlignment(kCCTextAlignmentLeft);
-    responseLabel->setVisible(false);
-    responseLabel->setPosition({ POPUP_WIDTH / 2.f, POPUP_HEIGHT / 2.f - 10.f });
-    m_mainLayer->addChild(responseLabel, 5);
-    m_responseLabel = responseLabel;
+    // ── Load history ─────────────────────────────────────────────────────────
+    auto& tm = TelemetryManager::get();
+    for (const auto& msg : tm.memory.history) {
+        addChatMessageToUI(msg.role, msg.text);
+    }
 
-    // ── Kick off the request ──────────────────────────────────────────────────
-    fetchCoachingAdvice();
+    if (tm.memory.history.empty()) {
+        fetchCoachingAdvice(); // initial fetch
+    }
 
     return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chat UI
+// ─────────────────────────────────────────────────────────────────────────────
+
+void CoachLayer::addChatMessageToUI(const std::string& role, const std::string& text) {
+    // Prefix label for role identification
+    std::string prefixed = (role == "user") ? ("You: " + text) : ("Coach: " + text);
+    
+    auto* label = CCLabelBMFont::create(prefixed.c_str(), "chatFont.fnt");
+    label->setAnchorPoint({ 0.f, 1.f });
+    
+    // scrollWidth in screen points. setWidth takes UNSCALED units.
+    // We want rendered width = scrollWidth - 10 (5px each side).
+    // rendered width = setWidth * scale  =>  setWidth = (scrollWidth-10) / scale
+    float scrollWidth = m_chatScroll->getContentSize().width;  // 340 pts
+    float scale       = 0.5f;
+    float margin      = 16.f;   // intentional inset so no char clips the right edge
+    label->setWidth((scrollWidth - margin) / scale);           // unscaled units
+    label->setScale(scale);
+    label->setAlignment(kCCTextAlignmentLeft);
+    
+    if (role == "user") {
+        label->setColor({ 150, 255, 150 });
+    } else {
+        label->setColor({ 230, 230, 230 });
+    }
+    
+    float padding = 8.f;
+    float labelHeight = label->getContentSize().height * scale;
+    m_chatHeight += labelHeight + padding;
+    
+    // Resize content layer
+    m_chatScroll->m_contentLayer->setContentSize({ scrollWidth, m_chatHeight });
+    
+    // Re-stack all existing children top-down
+    float currentY = m_chatHeight;
+    auto children = CCArrayExt<CCNode*>(m_chatScroll->m_contentLayer->getChildren());
+    for (auto* child : children) {
+        float h = child->getContentSize().height * child->getScale();
+        child->setPosition({ 5.f, currentY });
+        currentY -= (h + padding);
+    }
+    
+    // Place new label at the bottom
+    label->setPosition({ 5.f, currentY });
+    m_chatScroll->m_contentLayer->addChild(label);
+    
+    // Scroll to bottom
+    float overflow = m_chatHeight - m_chatScroll->getContentSize().height;
+    m_chatScroll->m_contentLayer->setPositionY(overflow > 0.f ? -overflow : 0.f);
+}
+
+void CoachLayer::onSubmit(CCObject*) {
+    std::string text = m_textInput->getString();
+    if (text.empty()) return;
+    
+    m_textInput->setString("");
+    
+    auto& tm = TelemetryManager::get();
+    tm.addChatMessage("user", text);
+    addChatMessageToUI("user", text);
+    
+    fetchCoachingAdvice(text);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,16 +190,19 @@ void CoachLayer::stopSpinner() {
 // Network
 // ─────────────────────────────────────────────────────────────────────────────
 
-void CoachLayer::fetchCoachingAdvice() {
+void CoachLayer::fetchCoachingAdvice(const std::string& userMessage) {
     auto& tm = TelemetryManager::get();
 
     // ── Guard: no session data yet ────────────────────────────────────────────
-    if (!tm.hasData()) {
+    if (!tm.hasData() && userMessage.empty()) {
         displayError("No session data yet.\nDie at least once in a level first!");
         return;
     }
+    
+    startSpinner();
+    if (m_statusLabel) m_statusLabel->setVisible(false);
 
-    // ── Serialise telemetry to JSON (matjson 3.x API) ─────────────────────────
+    // ── Serialise telemetry to JSON (matjson) ─────────────────────────────────
     std::vector<matjson::Value> deathsArr;
     for (const auto& d : tm.deaths) {
         matjson::Value death;
@@ -125,6 +210,26 @@ void CoachLayer::fetchCoachingAdvice() {
         death.set("gamemode",       matjson::Value(gamemodeToString(d.gamemode)));
         death.set("attempt_number", matjson::Value(d.attemptNumber));
         deathsArr.push_back(std::move(death));
+    }
+
+    std::vector<matjson::Value> clicksArr;
+    for (const auto& c : tm.clicks) {
+        matjson::Value click;
+        click.set("x", matjson::Value(c.x));
+        click.set("y", matjson::Value(c.y));
+        click.set("time", matjson::Value(c.time));
+        click.set("isDown", matjson::Value(c.isDown));
+        clicksArr.push_back(std::move(click));
+    }
+
+    std::vector<matjson::Value> historyArr;
+    for (const auto& msg : tm.memory.history) {
+        // Exclude the most recent message if it matches userMessage to avoid duplicate in context
+        // Actually, our worker uses history so it's fine, it will see everything.
+        matjson::Value h;
+        h.set("role", matjson::Value(msg.role));
+        h.set("text", matjson::Value(msg.text));
+        historyArr.push_back(std::move(h));
     }
 
     matjson::Value levelObj;
@@ -137,20 +242,22 @@ void CoachLayer::fetchCoachingAdvice() {
     matjson::Value payload;
     payload.set("level",            levelObj);
     payload.set("deaths",           matjson::Value(deathsArr));
+    payload.set("clicks",           matjson::Value(clicksArr));
+    payload.set("history",          matjson::Value(historyArr));
     payload.set("attempt_count",    matjson::Value(tm.attemptCount));
     payload.set("current_gamemode", matjson::Value(gamemodeToString(tm.currentGamemode)));
+    
+    if (!userMessage.empty()) {
+        payload.set("message", matjson::Value(userMessage));
+    }
 
     std::string jsonBody  = payload.dump();
     std::string serverUrl = Mod::get()->getSettingValue<std::string>("server-url");
     std::string endpoint  = serverUrl + "/analyze";
 
     log::info("[GDCoach] POSTing telemetry to {}", endpoint);
-    log::debug("[GDCoach] Payload: {}", jsonBody);
 
     // ── Fire-and-forget async request ─────────────────────────────────────────
-    // Retain `this` so it stays alive until the network callback fires.
-    // TaskHolder is declared locally; it gets captured into the lambda below
-    // so its lifetime is tied to the arc runtime task, not to `this`.
     Ref<CoachLayer> self = this;
 
     auto req = web::WebRequest();
@@ -158,7 +265,6 @@ void CoachLayer::fetchCoachingAdvice() {
     req.header("Accept", "text/plain");
     req.bodyString(jsonBody);
 
-    // geode::async::spawn fires the callback on the main thread when done.
     geode::async::spawn(
         req.post(endpoint),
         [self](web::WebResponse res) {
@@ -185,18 +291,9 @@ void CoachLayer::fetchCoachingAdvice() {
 void CoachLayer::displayResponse(const std::string& text) {
     stopSpinner();
 
-    if (m_statusLabel) {
-        m_statusLabel->setVisible(false);
-    }
-
-    if (m_responseLabel) {
-        m_responseLabel->setString(text.c_str());
-        m_responseLabel->setVisible(true);
-
-        // Fade in for a polished feel
-        m_responseLabel->setOpacity(0);
-        m_responseLabel->runAction(CCFadeIn::create(0.3f));
-    }
+    auto& tm = TelemetryManager::get();
+    tm.addChatMessage("model", text);
+    addChatMessageToUI("model", text);
 
     log::info("[GDCoach] Coaching advice displayed.");
 }
@@ -206,8 +303,7 @@ void CoachLayer::displayError(const std::string& message) {
 
     if (m_statusLabel) {
         m_statusLabel->setString(("! " + message).c_str());
-        m_statusLabel->setColor({ 255, 120, 120 });
-        m_statusLabel->setScale(0.5f);
+        m_statusLabel->setVisible(true);
     }
 
     log::warn("[GDCoach] Error displayed: {}", message);

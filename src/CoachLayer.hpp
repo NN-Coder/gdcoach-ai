@@ -2,6 +2,8 @@
 
 #include <Geode/Geode.hpp>
 #include <Geode/utils/web.hpp>
+#include <Geode/ui/TextInput.hpp>
+#include <Geode/ui/ScrollLayer.hpp>
 
 using namespace geode::prelude;
 
@@ -37,16 +39,24 @@ protected:
 
 private:
     // ── Plain member state ───────────────────────────────────────────────────
-    // The web task lifetime is managed in the .cpp via TaskHolder stored there.
     CCLabelBMFont*  m_statusLabel   = nullptr;
     CCNode*         m_spinnerNode   = nullptr;
-    CCScale9Sprite* m_textBg        = nullptr;
-    CCLabelBMFont*  m_responseLabel = nullptr;
+    
+    ScrollLayer*    m_chatScroll    = nullptr;
+    CCMenu*         m_chatMenu      = nullptr;
+    TextInput*      m_textInput     = nullptr;
+    float           m_chatHeight    = 0.f;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// Kick off the async web request to the inference server.
-    void fetchCoachingAdvice();
+    void fetchCoachingAdvice(const std::string& userMessage = "");
+
+    /// Adds a message to the scrollable chat UI.
+    void addChatMessageToUI(const std::string& role, const std::string& text);
+
+    /// Called when the user submits a message.
+    void onSubmit(CCObject*);
 
     /// Called on the main thread when a successful response arrives.
     void displayResponse(const std::string& text);

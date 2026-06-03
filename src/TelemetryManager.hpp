@@ -46,6 +46,26 @@ struct DeathRecord {
     int      attemptNumber; ///< Which attempt this death occurred on
 };
 
+/// A single player input (click or jump) recorded.
+struct ClickRecord {
+    float x;
+    float y;
+    float time;
+    bool  isDown;
+};
+
+/// A single message in the chat history.
+struct ChatMessage {
+    std::string role; // "user" or "model"
+    std::string text;
+};
+
+/// Conversation memory for a specific level.
+struct ConversationMemory {
+    int levelID;
+    std::vector<ChatMessage> history;
+};
+
 /// Metadata about the level currently being played.
 struct LevelInfo {
     std::string name;
@@ -77,15 +97,29 @@ public:
     /// Record a death at the given level-percentage in the given gamemode.
     void recordDeath(float percentage, Gamemode gamemode);
 
+    /// Record a player click input with position and time.
+    void recordClick(float x, float y, float time, bool isDown);
+
     /// Store metadata for the level that just loaded.
     void setLevelInfo(const LevelInfo& info);
 
     /// Update the active gamemode (called every frame from PlayerObject::update hook).
     void setCurrentGamemode(Gamemode gm);
 
+    /// Save the current conversation history to disk.
+    void saveMemory();
+
+    /// Load conversation history from disk for the current level.
+    void loadMemory();
+
+    /// Add a message to the conversation history.
+    void addChatMessage(const std::string& role, const std::string& text);
+
     // ── Read-only state ───────────────────────────────────────────────────────
     LevelInfo               levelInfo;
     std::vector<DeathRecord> deaths;
+    std::vector<ClickRecord> clicks;
+    ConversationMemory      memory;
     Gamemode                currentGamemode = Gamemode::Cube;
     int                     attemptCount    = 0;
 

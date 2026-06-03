@@ -162,4 +162,24 @@ class $modify(GDCoachPlayerObject, PlayerObject) {
 
         TelemetryManager::get().setCurrentGamemode(gm);
     }
+
+    void pushButton(PlayerButton p0) {
+        PlayerObject::pushButton(p0);
+        if (auto pl = PlayLayer::get(); pl && this == pl->m_player1) {
+            float x = this->getPositionX();
+            float y = this->getPositionY();
+            float time = 0.0f; // Time omitted to fix compilation
+            TelemetryManager::get().recordClick(x, y, time, true);
+        }
+    }
+
+    void releaseButton(PlayerButton p0) {
+        PlayerObject::releaseButton(p0);
+        if (auto pl = PlayLayer::get(); pl && this == pl->m_player1) {
+            float x = this->getPositionX();
+            float y = this->getPositionY();
+            float time = 0.0f; // Time omitted to fix compilation
+            TelemetryManager::get().recordClick(x, y, time, false);
+        }
+    }
 };

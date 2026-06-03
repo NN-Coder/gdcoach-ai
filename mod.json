@@ -26,8 +26,11 @@
             "name": "Inference Server URL",
             "description": "Base URL of your GDCoach AI inference server. Defaults to localhost. Change this if you are running the server remotely.",
             "type": "string",
-            "default": "http://localhost:8000"
+            "default": "https://gdcoach-ai-worker.edcube.workers.dev"
         }
     },
-    "tags": ["gameplay", "utility"]
+    "tags": [
+        "gameplay",
+        "utility"
+    ]
 }

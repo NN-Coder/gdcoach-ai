@@ -1,0 +1,151 @@
+export default {
+  async fetch(request, env, ctx) {
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
+    }
+
+    if (request.method !== "POST" || new URL(request.url).pathname !== "/analyze") {
+      return new Response("Not Found", { status: 404 });
+    }
+
+    if (!env.GEMINI_API_KEY) {
+      return new Response("Server configuration error: API Key missing.", { status: 500 });
+    }
+
+    try {
+      const payload = await request.json();
+
+      const difficultyMap = ["N/A","Auto","Easy","Normal","Hard","Harder","Insane","Easy Demon","Medium Demon","Hard Demon","Insane Demon"];
+      const level = payload.level || {};
+      const difficultyLabel = difficultyMap[level.difficulty] || "Unknown";
+      const isOfficial = level.level_id > 0 && level.level_id <= 22; // Main GD official levels
+
+      // ── Filter out <= 1% deaths (player pausing to open menu) ───────────────
+      const allDeaths = (payload.deaths || []).filter(d => d.percentage > 1.0);
+      const attemptCount = payload.attempt_count || 0;
+
+      // ── Build a structured analysis report ──────────────────────────────────
+      let contextMsg = `=== SESSION REPORT ===\n`;
+      contextMsg += `Level: "${level.name || "Unknown"}" by ${level.creator || "Unknown"} (ID: ${level.level_id || 0}, Difficulty: ${difficultyLabel}${isOfficial ? ", Official GD Level" : ""}).\n`;
+      contextMsg += `Total attempts this session: ${attemptCount}.\n`;
+
+      if (allDeaths.length === 0) {
+        contextMsg += `No meaningful deaths recorded yet (deaths at <=1% are ignored as menu-pause artifacts).\n`;
+      } else {
+        const latest = allDeaths[allDeaths.length - 1];
+        contextMsg += `Latest attempt: died at ${latest.percentage.toFixed(1)}% as ${latest.gamemode}.\n`;
+
+        // ── Choke point detection ──────────────────────────────────────────────
+        // Find the 5%-window with the most deaths
+        let bestStart = 0, bestCount = 0;
+        for (const d of allDeaths) {
+          const windowStart = Math.floor(d.percentage / 5) * 5;
+          const count = allDeaths.filter(x => x.percentage >= windowStart && x.percentage < windowStart + 5).length;
+          if (count > bestCount) { bestCount = count; bestStart = windowStart; }
+        }
+        if (bestCount >= 2) {
+          contextMsg += `Choke point: ${bestCount} deaths clustered between ${bestStart.toFixed(0)}% and ${(bestStart + 5).toFixed(0)}%. This is the primary bottleneck.\n`;
+        }
+
+        // ── Gamemode breakdown ─────────────────────────────────────────────────
+        const gmCounts = {};
+        for (const d of allDeaths) {
+          gmCounts[d.gamemode] = (gmCounts[d.gamemode] || 0) + 1;
+        }
+        const gmBreakdown = Object.entries(gmCounts).map(([gm, n]) => `${gm}: ${n} deaths`).join(", ");
+        contextMsg += `Deaths by gamemode: ${gmBreakdown}.\n`;
+
+        // ── Progression trend ──────────────────────────────────────────────────
+        if (allDeaths.length >= 3) {
+          const firstHalf = allDeaths.slice(0, Math.floor(allDeaths.length / 2));
+          const secondHalf = allDeaths.slice(Math.floor(allDeaths.length / 2));
+          const avgFirst = firstHalf.reduce((s, d) => s + d.percentage, 0) / firstHalf.length;
+          const avgSecond = secondHalf.reduce((s, d) => s + d.percentage, 0) / secondHalf.length;
+          const improvement = avgSecond - avgFirst;
+          if (improvement > 2) {
+            contextMsg += `Trend: Player is progressing further (+${improvement.toFixed(1)}% avg improvement over the session).\n`;
+          } else if (improvement < -2) {
+            contextMsg += `Trend: Player is dying earlier over the session (${improvement.toFixed(1)}% avg), suggesting fatigue or inconsistency.\n`;
+          } else {
+            contextMsg += `Trend: Runs are consistent but stuck at roughly the same point.\n`;
+          }
+        }
+
+        // ── Full death log ─────────────────────────────────────────────────────
+        contextMsg += `\nAll deaths this session:\n`;
+        allDeaths.forEach((d, i) => {
+          contextMsg += `  Attempt ${d.attempt_number}: ${d.percentage.toFixed(1)}% as ${d.gamemode}\n`;
+        });
+      }
+
+      // ── Conversation history ───────────────────────────────────────────────
+      const contents = [];
+      if (payload.history && payload.history.length > 0) {
+        for (const msg of payload.history) {
+          contents.push({
+            role: msg.role === "user" ? "user" : "model",
+            parts: [{ text: msg.text }]
+          });
+        }
+      }
+
+      const latestUserText = payload.message
+        ? `${contextMsg}\n\nPlayer message: ${payload.message}`
+        : `${contextMsg}\n\nAnalyze this and give me targeted coaching advice.`;
+
+      contents.push({ role: "user", parts: [{ text: latestUserText }] });
+
+      const systemPrompt = `You are GDCoach, a sharp, knowledgeable Geometry Dash coach.
+
+You will receive a structured session report with death percentages, choke points, and game mode data. Your job is to turn that data into precise, actionable coaching.
+
+RULES:
+1. Ground every statement in the actual numbers given. Never invent obstacles, spikes, or struggles that aren't in the data.
+2. Use your knowledge of the level's layout to pinpoint WHAT is at the death percentage. For official levels (Stereo Madness, Back on Track, Clubstep, etc.) you know the layout — use it. For custom levels, be appropriately vague unless the level is famous (e.g. Bloodbath, Cataclysm).
+3. Identify MECHANICS: if the player is dying as Cube, consider timing (early jump, late jump, misclick). If Ship, consider straight-fly or micro-corrections. If Wave, consider spam control. Use this to give specific mechanical advice.
+4. If there is a clear choke point (3+ deaths in the same window), focus your advice there. If runs are improving, acknowledge it and address the new wall.
+5. Only recommend practice levels when they are genuinely applicable to an advanced skill the player clearly struggles with. For main official GD levels being played casually, tell them to just keep playing.
+6. Be direct, specific, and concise. Don't pad with generic encouragement. Respond like a coach, not a tutorial.`;
+
+      const geminiRequestBody = {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents,
+        generationConfig: {
+          temperature: 0.5,  // Lower = less hallucination, more precise
+          maxOutputTokens: 2048
+        }
+      };
+
+      const model = "gemini-3.5-flash";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
+
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(geminiRequestBody)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("Gemini API Error:", JSON.stringify(data));
+        return new Response("Error communicating with AI.", { status: 502, headers: { "Access-Control-Allow-Origin": "*" } });
+      }
+
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "No advice generated.";
+
+      return new Response(text, {
+        headers: { "Content-Type": "text/plain", "Access-Control-Allow-Origin": "*" }
+      });
+    } catch (e) {
+      console.error(e);
+      return new Response("Internal Server Error", { status: 500, headers: { "Access-Control-Allow-Origin": "*" } });
+    }
+  }
+};

@@ -1,0 +1,13 @@
+{
+  "name": "gdcoach-ai-worker",
+  "version": "1.0.0",
+  "description": "GDCoach AI Inference proxy",
+  "main": "src/index.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
