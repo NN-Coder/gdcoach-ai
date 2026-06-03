@@ -1,0 +1,26 @@
+# Geode build artifacts
+build/
+out/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+
+# Environment secrets — never commit
+server/.env
+secrets.md
+
+# IDE
+.vs/
+.vscode/settings.json
+*.user
+*.suo
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

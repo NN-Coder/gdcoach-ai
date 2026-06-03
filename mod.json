@@ -1,0 +1,33 @@
+{
+    "geode": "5.7.1",
+    "gd": {
+        "win": "2.2081",
+        "android": "2.2081",
+        "mac": "2.2081",
+        "ios": "2.2081"
+    },
+    "id": "neil.gdcoach-ai",
+    "name": "GDCoach AI",
+    "version": "v0.1.0",
+    "developer": "Neil",
+    "description": "Personalized AI coaching for Geometry Dash. Analyzes your play session and delivers targeted feedback on deaths, gamemode skills, and practice recommendations.",
+    "repository": "https://github.com/Neil/gdcoach-ai",
+    "dependencies": {
+        "geode.node-ids": ">=v1.23.3"
+    },
+    "settings": {
+        "demon-list-mode": {
+            "name": "Demon List Mode",
+            "description": "Completely disables the AI Coach button and all UI hooks when active. Enable this before recording official Demon List attempts to guarantee a clean, unmodified run.",
+            "type": "bool",
+            "default": false
+        },
+        "server-url": {
+            "name": "Inference Server URL",
+            "description": "Base URL of your GDCoach AI inference server. Defaults to localhost. Change this if you are running the server remotely.",
+            "type": "string",
+            "default": "http://localhost:8000"
+        }
+    },
+    "tags": ["gameplay", "utility"]
+}
