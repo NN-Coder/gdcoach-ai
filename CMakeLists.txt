@@ -22,6 +22,7 @@ add_library(${PROJECT_NAME} SHARED
     src/main.cpp
     src/TelemetryManager.cpp
     src/CoachLayer.cpp
+    src/DeleteDataLayer.cpp
 )
 
 # Disable precompiled headers for our mod target — the complex arc/async

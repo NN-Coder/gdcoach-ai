@@ -1,5 +1,6 @@
 #include "CoachLayer.hpp"
 #include "TelemetryManager.hpp"
+#include "DeleteDataLayer.hpp"
 
 #include <Geode/Geode.hpp>
 #include <Geode/utils/web.hpp>
@@ -16,6 +17,9 @@ using namespace geode::prelude;
 
 static constexpr float POPUP_WIDTH  = 380.f;
 static constexpr float POPUP_HEIGHT = 280.f;
+
+/// Hardcoded inference server base URL.
+static constexpr const char* SERVER_BASE_URL = "https://gdcoach-ai-worker.edcube.workers.dev";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Factory & show helper
@@ -90,6 +94,19 @@ bool CoachLayer::init() {
     status->setVisible(false);
     m_mainLayer->addChild(status, 5);
     m_statusLabel = status;
+
+    // ── Delete Data button (top-left) ──────────────────────────────────────
+    auto* deleteBtnSprite = ButtonSprite::create(
+        "Delete Data", "bigFont.fnt", "GJ_button_06.png", 0.5f
+    );
+    deleteBtnSprite->setColor({ 255, 90, 90 });
+    auto* deleteBtn = CCMenuItemSpriteExtra::create(
+        deleteBtnSprite, this, menu_selector(CoachLayer::onDeleteData)
+    );
+    auto* deleteMenu = CCMenu::create();
+    deleteMenu->setPosition({ 52.f, POPUP_HEIGHT - 16.f });
+    deleteMenu->addChild(deleteBtn);
+    m_mainLayer->addChild(deleteMenu);
 
     // ── Load history ─────────────────────────────────────────────────────────
     auto& tm = TelemetryManager::get();
@@ -251,11 +268,13 @@ void CoachLayer::fetchCoachingAdvice(const std::string& userMessage) {
         payload.set("message", matjson::Value(userMessage));
     }
 
-    std::string jsonBody  = payload.dump();
-    std::string serverUrl = Mod::get()->getSettingValue<std::string>("server-url");
-    std::string endpoint  = serverUrl + "/analyze";
+    int maxTokens = static_cast<int>(Mod::get()->getSettingValue<int64_t>("max-tokens"));
+    payload.set("max_tokens", matjson::Value(maxTokens));
 
-    log::info("[GDCoach] POSTing telemetry to {}", endpoint);
+    std::string jsonBody = payload.dump();
+    std::string endpoint = std::string(SERVER_BASE_URL) + "/analyze";
+
+    log::info("[GDCoach] POSTing telemetry to {} (max_tokens={})", endpoint, maxTokens);
 
     // ── Fire-and-forget async request ─────────────────────────────────────────
     Ref<CoachLayer> self = this;
@@ -307,4 +326,13 @@ void CoachLayer::displayError(const std::string& message) {
     }
 
     log::warn("[GDCoach] Error displayed: {}", message);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delete data
+// ─────────────────────────────────────────────────────────────────────────────
+
+void CoachLayer::onDeleteData(CCObject*) {
+    log::info("[GDCoach] Opening delete data menu.");
+    DeleteDataLayer::show();
 }

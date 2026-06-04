@@ -115,6 +115,18 @@ public:
     /// Add a message to the conversation history.
     void addChatMessage(const std::string& role, const std::string& text);
 
+    /// Clear the chat history for a specific level (deletes its memory file).
+    void clearMemoryForLevel(int levelID);
+
+    /// Clear ALL saved chat histories for every level (deletes all memory_*.json files).
+    void clearAllMemory();
+
+    /// Clear the current in-session telemetry (deaths and clicks) without resetting level info or memory.
+    void clearCurrentSession();
+
+    /// Return the list of level IDs that have saved memory files on disk.
+    std::vector<int> getSavedLevelIDs();
+
     // ── Read-only state ───────────────────────────────────────────────────────
     LevelInfo               levelInfo;
     std::vector<DeathRecord> deaths;

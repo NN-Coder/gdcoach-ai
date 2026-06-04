@@ -2,6 +2,7 @@
 #include <Geode/Geode.hpp>
 #include <matjson.hpp>
 #include <fstream>
+#include <filesystem>
 
 using namespace geode::prelude;
 
@@ -143,4 +144,58 @@ void TelemetryManager::setCurrentGamemode(Gamemode gm) {
 
 bool TelemetryManager::hasData() const {
     return !deaths.empty();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Data deletion helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TelemetryManager::clearMemoryForLevel(int levelID) {
+    if (levelID == 0) return;
+    auto path = Mod::get()->getSaveDir() / fmt::format("memory_{}.json", levelID);
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    // Also clear in-memory history if it matches the current level
+    if (memory.levelID == levelID) {
+        memory.history.clear();
+    }
+    log::info("[GDCoach] Cleared chat history for level {}.", levelID);
+}
+
+void TelemetryManager::clearAllMemory() {
+    auto saveDir = Mod::get()->getSaveDir();
+    std::error_code ec;
+    for (auto const& entry : std::filesystem::directory_iterator(saveDir, ec)) {
+        auto name = entry.path().filename().string();
+        if (name.rfind("memory_", 0) == 0 && name.size() > 12) {
+            std::filesystem::remove(entry.path(), ec);
+        }
+    }
+    memory.history.clear();
+    log::info("[GDCoach] All chat histories cleared.");
+}
+
+void TelemetryManager::clearCurrentSession() {
+    deaths.clear();
+    clicks.clear();
+    attemptCount = 0;
+    log::info("[GDCoach] Current session telemetry (deaths & clicks) cleared.");
+}
+
+std::vector<int> TelemetryManager::getSavedLevelIDs() {
+    std::vector<int> ids;
+    auto saveDir = Mod::get()->getSaveDir();
+    std::error_code ec;
+    for (auto const& entry : std::filesystem::directory_iterator(saveDir, ec)) {
+        auto name = entry.path().filename().string();
+        // Files are named memory_<levelID>.json
+        if (name.rfind("memory_", 0) == 0 && name.size() > 12) {
+            // Strip prefix "memory_" (7 chars) and suffix ".json" (5 chars)
+            auto idStr = name.substr(7, name.size() - 7 - 5);
+            try {
+                ids.push_back(std::stoi(idStr));
+            } catch (...) {}
+        }
+    }
+    return ids;
 }

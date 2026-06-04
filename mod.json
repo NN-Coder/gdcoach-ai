@@ -22,11 +22,13 @@
             "type": "bool",
             "default": false
         },
-        "server-url": {
-            "name": "Inference Server URL",
-            "description": "Base URL of your GDCoach AI inference server. Defaults to localhost. Change this if you are running the server remotely.",
-            "type": "string",
-            "default": "https://gdcoach-ai-worker.edcube.workers.dev"
+        "max-tokens": {
+            "name": "AI Token Limit",
+            "description": "Maximum number of tokens the AI is allowed to generate per response. Lower values are faster and cheaper; higher values allow more detailed coaching. Changes take effect immediately on the next request.",
+            "type": "int",
+            "default": 1024,
+            "min": 256,
+            "max": 4096
         }
     },
     "tags": [
