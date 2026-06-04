@@ -3,11 +3,104 @@
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
 #include <Geode/loader/Mod.hpp>
+#include <Geode/loader/SettingV3.hpp>
 
 #include "TelemetryManager.hpp"
 #include "CoachLayer.hpp"
+#include "DeleteDataLayer.hpp"
 
 using namespace geode::prelude;
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Custom Setting: "delete-data-button"
+// Renders a "Delete Data" button in the mod settings panel that opens
+// DeleteDataLayer without storing any persistent value.
+// ═════════════════════════════════════════════════════════════════════════════
+
+class DeleteDataSetting : public SettingV3 {
+public:
+    static Result<std::shared_ptr<SettingV3>> parse(
+        std::string const& key,
+        std::string const& modID,
+        matjson::Value const& json)
+    {
+        auto res = std::make_shared<DeleteDataSetting>();
+        auto root = checkJson(json, "DeleteDataSetting");
+        res->init(key, modID, root);
+        root.checkUnknownKeys();
+        return root.ok(std::static_pointer_cast<SettingV3>(res));
+    }
+
+    bool load(matjson::Value const& json) override { return true; }
+    bool save(matjson::Value& json) const override { return true; }
+    bool isDefaultValue() const override { return true; }
+    void reset() override {}
+
+    SettingNodeV3* createNode(float width) override;
+};
+
+class DeleteDataSettingNode : public SettingNodeV3 {
+protected:
+    bool init(std::shared_ptr<DeleteDataSetting> setting, float width) {
+        if (!SettingNodeV3::init(setting, width)) return false;
+
+        // Row height
+        this->setContentSize({ width, 40.f });
+
+        // Button centered in the row
+        auto* sprite = ButtonSprite::create(
+            "Delete Stored Data", "bigFont.fnt", "GJ_button_06.png", 0.6f
+        );
+        sprite->setColor({ 255, 80, 80 });
+
+        auto* btn = CCMenuItemSpriteExtra::create(
+            sprite, this, menu_selector(DeleteDataSettingNode::onDeleteData)
+        );
+
+        auto* menu = CCMenu::create();
+        menu->setPosition({ width / 2.f, 20.f });
+        menu->addChild(btn);
+        this->addChild(menu);
+
+        return true;
+    }
+
+    void onDeleteData(CCObject*) {
+        DeleteDataLayer::show();
+    }
+
+    // SettingNodeV3 contract — no-ops because this setting stores no value.
+    void onCommit() override {}
+    bool hasUncommittedChanges() const override { return false; }
+    bool hasNonDefaultValue() const override { return false; }
+    void onResetToDefault() override {}
+
+public:
+    static DeleteDataSettingNode* create(
+        std::shared_ptr<DeleteDataSetting> setting, float width)
+    {
+        auto* node = new DeleteDataSettingNode();
+        if (node && node->init(setting, width)) {
+            node->autorelease();
+            return node;
+        }
+        CC_SAFE_DELETE(node);
+        return nullptr;
+    }
+};
+
+SettingNodeV3* DeleteDataSetting::createNode(float width) {
+    return DeleteDataSettingNode::create(
+        std::static_pointer_cast<DeleteDataSetting>(shared_from_this()), width
+    );
+}
+
+// Register the custom setting type as soon as the mod loads.
+$on_mod(Loaded) {
+    (void)Mod::get()->registerCustomSettingType(
+        "delete-data-button", &DeleteDataSetting::parse
+    );
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // HOOK 1 — PauseLayer::customSetup

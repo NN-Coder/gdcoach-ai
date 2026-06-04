@@ -36,6 +36,7 @@ public:
 
 protected:
     bool init() override;
+    void keyDown(cocos2d::enumKeyCodes key, double p1) override;
 
 private:
     // ── Plain member state ───────────────────────────────────────────────────
@@ -58,9 +59,6 @@ private:
     /// Called when the user submits a message.
     void onSubmit(CCObject*);
 
-    /// Called when the user taps the "Delete Data" button to open the deletion menu.
-    void onDeleteData(CCObject*);
-
     /// Called on the main thread when a successful response arrives.
     void displayResponse(const std::string& text);
 
@@ -72,4 +70,7 @@ private:
 
     /// Stops and hides the spinner.
     void stopSpinner();
+
+    /// Deferred scroll-to-bottom scheduled for the next frame after content is added.
+    void scrollToBottom(float dt);
 };

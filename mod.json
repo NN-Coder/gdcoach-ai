@@ -29,6 +29,11 @@
             "default": 1024,
             "min": 256,
             "max": 4096
+        },
+        "delete-data-button": {
+            "name": "Delete Stored Data",
+            "description": "Open the data deletion menu to selectively remove saved chat histories and session data.",
+            "type": "custom"
         }
     },
     "tags": [

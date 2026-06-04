@@ -26,6 +26,9 @@ export default {
       const difficultyLabel = difficultyMap[level.difficulty] || "Unknown";
       const isOfficial = level.level_id > 0 && level.level_id <= 22; // Main GD official levels
 
+      // ── Token budget from client (slider, default 1024) ────────────────────
+      const maxTokens = Math.min(Math.max(Number(payload.max_tokens) || 1024, 256), 4096);
+
       // ── Filter out <= 1% deaths (player pausing to open menu) ───────────────
       const allDeaths = (payload.deaths || []).filter(d => d.percentage > 1.0);
       const attemptCount = payload.attempt_count || 0;
@@ -105,6 +108,8 @@ export default {
 
 You will receive a structured session report with death percentages, choke points, and game mode data. Your job is to turn that data into precise, actionable coaching.
 
+TOKEN BUDGET: You have a strict limit of approximately ${maxTokens} output tokens. To ensure you do not get cut off, you MUST limit your response to roughly ${Math.floor(maxTokens * 0.6)} words. Always finish on a complete sentence — never cut off mid-word or mid-sentence. If you are running long, wrap up cleanly and concisely.
+
 RULES:
 1. Ground every statement in the actual numbers given. Never invent obstacles, spikes, or struggles that aren't in the data.
 2. Use your knowledge of the level's layout to pinpoint WHAT is at the death percentage. For official levels (Stereo Madness, Back on Track, Clubstep, etc.) you know the layout — use it. For custom levels, be appropriately vague unless the level is famous (e.g. Bloodbath, Cataclysm).
@@ -118,7 +123,7 @@ RULES:
         contents,
         generationConfig: {
           temperature: 0.5,  // Lower = less hallucination, more precise
-          maxOutputTokens: 2048
+          maxOutputTokens: maxTokens + 250 // Provide physical padding so it can finish its sentence
         }
       };
 

@@ -1,8 +1,8 @@
 #include "CoachLayer.hpp"
 #include "TelemetryManager.hpp"
-#include "DeleteDataLayer.hpp"
 
 #include <Geode/Geode.hpp>
+#include <Geode/ui/TextArea.hpp>
 #include <Geode/utils/web.hpp>
 #include <Geode/utils/async.hpp>
 #include <Geode/loader/Mod.hpp>
@@ -66,7 +66,8 @@ bool CoachLayer::init() {
 
     // ── Text Input ───────────────────────────────────────────────────────────
     m_textInput = TextInput::create(scrollSize.width - 60.f, "Ask for advice...");
-    m_textInput->setPosition({ POPUP_WIDTH / 2.f - 20.f, 25.f });
+    m_textInput->setCommonFilter(CommonFilter::Any);
+    m_textInput->setPosition({ POPUP_WIDTH / 2.f - 40.f, 25.f });
     m_mainLayer->addChild(m_textInput);
 
     // ── Submit Button ────────────────────────────────────────────────────────
@@ -95,19 +96,6 @@ bool CoachLayer::init() {
     m_mainLayer->addChild(status, 5);
     m_statusLabel = status;
 
-    // ── Delete Data button (top-left) ──────────────────────────────────────
-    auto* deleteBtnSprite = ButtonSprite::create(
-        "Delete Data", "bigFont.fnt", "GJ_button_06.png", 0.5f
-    );
-    deleteBtnSprite->setColor({ 255, 90, 90 });
-    auto* deleteBtn = CCMenuItemSpriteExtra::create(
-        deleteBtnSprite, this, menu_selector(CoachLayer::onDeleteData)
-    );
-    auto* deleteMenu = CCMenu::create();
-    deleteMenu->setPosition({ 52.f, POPUP_HEIGHT - 16.f });
-    deleteMenu->addChild(deleteBtn);
-    m_mainLayer->addChild(deleteMenu);
-
     // ── Load history ─────────────────────────────────────────────────────────
     auto& tm = TelemetryManager::get();
     for (const auto& msg : tm.memory.history) {
@@ -116,6 +104,9 @@ bool CoachLayer::init() {
 
     if (tm.memory.history.empty()) {
         fetchCoachingAdvice(); // initial fetch
+    } else {
+        // Delay to let layout settle, then scroll to bottom
+        this->scheduleOnce(schedule_selector(CoachLayer::scrollToBottom), 0.f);
     }
 
     return true;
@@ -128,49 +119,66 @@ bool CoachLayer::init() {
 void CoachLayer::addChatMessageToUI(const std::string& role, const std::string& text) {
     // Prefix label for role identification
     std::string prefixed = (role == "user") ? ("You: " + text) : ("Coach: " + text);
-    
-    auto* label = CCLabelBMFont::create(prefixed.c_str(), "chatFont.fnt");
+
+    // ── Text-width fix ─────────────────────────────────────────────────────────
+    static constexpr float LABEL_INSET = 8.f;
+    static constexpr float RIGHT_INSET = 24.f;  // Increased breathing room
+    static constexpr float LABEL_SCALE = 0.5f;
+
+    float scrollWidth   = POPUP_WIDTH - 40.f;
+    float renderWidth   = scrollWidth - LABEL_INSET - RIGHT_INSET;
+
+    // Use Geode's SimpleTextArea which is immune to the Cocos2d BMFont width bug
+    auto* label = geode::SimpleTextArea::create(prefixed, "chatFont.fnt", LABEL_SCALE, renderWidth);
     label->setAnchorPoint({ 0.f, 1.f });
     
-    // scrollWidth in screen points. setWidth takes UNSCALED units.
-    // We want rendered width = scrollWidth - 10 (5px each side).
-    // rendered width = setWidth * scale  =>  setWidth = (scrollWidth-10) / scale
-    float scrollWidth = m_chatScroll->getContentSize().width;  // 340 pts
-    float scale       = 0.5f;
-    float margin      = 16.f;   // intentional inset so no char clips the right edge
-    label->setWidth((scrollWidth - margin) / scale);           // unscaled units
-    label->setScale(scale);
-    label->setAlignment(kCCTextAlignmentLeft);
-    
-    if (role == "user") {
-        label->setColor({ 150, 255, 150 });
-    } else {
-        label->setColor({ 230, 230, 230 });
-    }
-    
-    float padding = 8.f;
-    float labelHeight = label->getContentSize().height * scale;
+    // Set color using SimpleTextArea's native method
+    cocos2d::ccColor4B color = (role == "user") ? ccc4(150, 255, 150, 255) : ccc4(230, 230, 230, 255);
+    label->setColor(color);
+
+    float padding     = 8.f;
+    // Use SimpleTextArea's getHeight() to get the proper physical height
+    float labelHeight = label->getHeight();
     m_chatHeight += labelHeight + padding;
-    
+
     // Resize content layer
     m_chatScroll->m_contentLayer->setContentSize({ scrollWidth, m_chatHeight });
-    
+
     // Re-stack all existing children top-down
     float currentY = m_chatHeight;
     auto children = CCArrayExt<CCNode*>(m_chatScroll->m_contentLayer->getChildren());
     for (auto* child : children) {
-        float h = child->getContentSize().height * child->getScale();
-        child->setPosition({ 5.f, currentY });
+        float h;
+        if (auto* textArea = static_cast<geode::SimpleTextArea*>(child)) {
+            h = textArea->getHeight();
+        } else {
+            h = child->getContentSize().height * child->getScale();
+        }
+        child->setPosition({ LABEL_INSET, currentY });
         currentY -= (h + padding);
     }
-    
+
     // Place new label at the bottom
-    label->setPosition({ 5.f, currentY });
+    label->setPosition({ LABEL_INSET, currentY });
     m_chatScroll->m_contentLayer->addChild(label);
-    
-    // Scroll to bottom
-    float overflow = m_chatHeight - m_chatScroll->getContentSize().height;
-    m_chatScroll->m_contentLayer->setPositionY(overflow > 0.f ? -overflow : 0.f);
+
+    // ── Conditionally scroll to bottom ──────────────────────────────────────────
+    // The user requested: "when the AI gives a response, I don't want to scroll
+    // to the top or bottom. I want it to stay at the start of the AI's reply."
+    // So we ONLY force a scroll to bottom if the message is from the user.
+    if (role == "user") {
+        this->scheduleOnce(schedule_selector(CoachLayer::scrollToBottom), 0.f);
+    }
+}
+
+void CoachLayer::keyDown(cocos2d::enumKeyCodes key, double p1) {
+    if (key == cocos2d::KEY_Enter) {
+        if (m_textInput && !m_textInput->getString().empty()) {
+            this->onSubmit(nullptr);
+            return; // consume the event
+        }
+    }
+    geode::Popup::keyDown(key, p1);
 }
 
 void CoachLayer::onSubmit(CCObject*) {
@@ -329,10 +337,24 @@ void CoachLayer::displayError(const std::string& message) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Delete data
+// Deferred scroll to bottom
 // ─────────────────────────────────────────────────────────────────────────────
 
-void CoachLayer::onDeleteData(CCObject*) {
-    log::info("[GDCoach] Opening delete data menu.");
-    DeleteDataLayer::show();
+void CoachLayer::scrollToBottom(float) {
+    if (!m_chatScroll || !m_chatScroll->m_contentLayer) return;
+    
+    // In Cocos2d-x ScrollLayer, the content layer anchor point is 0,0 (bottom-left).
+    // When the content is taller than the view, setting Y to 0 aligns the bottom
+    // of the content with the bottom of the scroll view. Setting Y to -overflow
+    // aligns the top of the content with the top of the scroll view.
+    // Since we place new messages at the bottom (near Y=0), we want Y=0.
+    float viewHeight = m_chatScroll->getContentSize().height;
+    if (m_chatHeight > viewHeight) {
+        m_chatScroll->m_contentLayer->setPositionY(0.f);
+    } else {
+        // If content is smaller than view, Y=0 puts it at the bottom.
+        // Usually we want it to start from top if it's small, which means
+        // Y = viewHeight - m_chatHeight.
+        m_chatScroll->m_contentLayer->setPositionY(viewHeight - m_chatHeight);
+    }
 }
