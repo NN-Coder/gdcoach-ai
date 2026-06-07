@@ -10,7 +10,8 @@ export default {
       });
     }
 
-    if (request.method !== "POST" || new URL(request.url).pathname !== "/analyze") {
+    const url = new URL(request.url);
+    if (request.method !== "POST" || (url.pathname !== "/analyze" && url.pathname !== "/summarize")) {
       return new Response("Not Found", { status: 404 });
     }
 
@@ -20,6 +21,76 @@ export default {
 
     try {
       const payload = await request.json();
+
+      if (url.pathname === "/summarize") {
+        const level = payload.level || {};
+        const attempts = payload.attempts || [];
+        const chatHistory = payload.chat_history || [];
+
+        if (attempts.length === 0) {
+          return new Response("No attempts recorded this session.", {
+            status: 200,
+            headers: { "Access-Control-Allow-Origin": "*" }
+          });
+        }
+
+        let contextMsg = `Here is the list of attempts from the play session of level "${level.name || "Unknown"}" by ${level.creator || "Unknown"} (ID: ${level.level_id || 0}):\n`;
+        attempts.forEach(s => {
+          contextMsg += `- ${s}\n`;
+        });
+
+        if (chatHistory.length > 0) {
+          contextMsg += `\nHere is the chat history between the player and their AI coach during this session:\n`;
+          chatHistory.forEach(msg => {
+            contextMsg += `${msg.role === "user" ? "Player" : "Coach"}: ${msg.text}\n`;
+          });
+        }
+
+        const systemPrompt = `You are GDCoach's Session Summarizer.
+Your task is to generate a concise, objective summary of the player's level session.
+You will receive a list of attempt summaries (where they died) and the chat logs between the player and their AI coach.
+
+Format the output as a clean, brief summary (1-2 short paragraphs) that:
+1. Identifies the furthest progress achieved and the primary choke point(s).
+2. Synthesizes any coaching advice or player inquiries from the chat logs.
+3. Provides a final encouraging but realistic takeaway for their next session.
+
+Do not include markdown headers, bullet points, or list structures. Write in a concise, human-like voice. Max 150 words.`;
+
+        const geminiRequestBody = {
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: "user", parts: [{ text: contextMsg }] }],
+          generationConfig: {
+            temperature: 0.5,
+            maxOutputTokens: 500
+          }
+        };
+
+        const model = "gemini-2.5-flash";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
+
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(geminiRequestBody)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          console.error("Gemini API Error (Summarize):", JSON.stringify(data));
+          return new Response("Error communicating with AI.", {
+            status: 502,
+            headers: { "Access-Control-Allow-Origin": "*" }
+          });
+        }
+
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "No summary generated.";
+
+        return new Response(text, {
+          headers: { "Content-Type": "text/plain", "Access-Control-Allow-Origin": "*" }
+        });
+      }
 
       const difficultyMap = ["N/A","Auto","Easy","Normal","Hard","Harder","Insane","Easy Demon","Medium Demon","Hard Demon","Insane Demon"];
       const level = payload.level || {};

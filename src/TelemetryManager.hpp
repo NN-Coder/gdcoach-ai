@@ -71,6 +71,8 @@ struct LevelInfo {
     std::string name;
     std::string creator;
     int         difficulty; ///< GJ difficulty int (0=N/A, 1=Auto, 2=Easy … 10=Demon)
+    int         demonDifficulty; ///< 3=Easy, 4=Medium, 0=Hard, 5=Insane, 6=Extreme
+    bool        isDemon;
     int         levelID;
     bool        isPlatformer;
 };
@@ -103,6 +105,15 @@ public:
     /// Store metadata for the level that just loaded.
     void setLevelInfo(const LevelInfo& info);
 
+    /// Write static level details to a separate file.
+    void saveLevelMetadata();
+
+    /// Process the previous attempt and start a new one.
+    void startNewAttempt();
+
+    /// Compile attempt summaries into a Session Summary.
+    void endSession();
+
     /// Update the active gamemode (called every frame from PlayerObject::update hook).
     void setCurrentGamemode(Gamemode gm);
 
@@ -131,6 +142,7 @@ public:
     LevelInfo               levelInfo;
     std::vector<DeathRecord> deaths;
     std::vector<ClickRecord> clicks;
+    std::vector<std::string> attemptSummaries; // Session's attempt summaries
     ConversationMemory      memory;
     Gamemode                currentGamemode = Gamemode::Cube;
     int                     attemptCount    = 0;

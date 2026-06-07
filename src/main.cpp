@@ -195,12 +195,24 @@ class $modify(GDCoachPlayLayer, PlayLayer) {
             info.name         = level->m_levelName;
             info.creator      = level->m_creatorName;
             info.difficulty   = static_cast<int>(level->m_difficulty);
+            info.demonDifficulty = static_cast<int>(level->m_demonDifficulty);
+            info.isDemon      = level->m_demon > 0;
             info.levelID      = level->m_levelID;
             info.isPlatformer = level->isPlatformer();
             tm.setLevelInfo(info);
         }
 
         return true;
+    }
+
+    void resetLevel() {
+        PlayLayer::resetLevel();
+        TelemetryManager::get().startNewAttempt();
+    }
+
+    void onQuit() {
+        TelemetryManager::get().endSession();
+        PlayLayer::onQuit();
     }
 
     // ── 2b: Player death ──────────────────────────────────────────────────────
