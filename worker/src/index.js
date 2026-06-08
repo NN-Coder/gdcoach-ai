@@ -158,6 +158,15 @@ Do not include markdown headers, bullet points, or list structures. Write in a c
         });
       }
 
+      // ── Long-Term History ──────────────────────────────────────────────────
+      if (payload.long_term_history && payload.long_term_history.length > 0) {
+        contextMsg += `\n=== LONG-TERM HISTORY ===\n`;
+        contextMsg += `Here are the summaries of the last ${payload.long_term_history.length} sessions:\n`;
+        payload.long_term_history.forEach((session, i) => {
+          contextMsg += `Session ${i + 1}: ${session.summary || "No summary available."}\n`;
+        });
+      }
+
       // ── Conversation history ───────────────────────────────────────────────
       const contents = [];
       if (payload.history && payload.history.length > 0) {
@@ -177,7 +186,9 @@ Do not include markdown headers, bullet points, or list structures. Write in a c
 
       const systemPrompt = `You are GDCoach, a sharp, knowledgeable Geometry Dash coach.
 
-You will receive a structured session report with death percentages, choke points, and game mode data. Your job is to turn that data into precise, actionable coaching.
+You will receive a structured session report with death percentages, choke points, and game mode data, as well as past session summaries. Your job is to turn that data into precise, actionable coaching.
+
+CONTEXT PRIORITY: Focus primarily on the current Attempt metrics and the current Session trends equally. Use the long-term History purely for macro-progression tracking and overarching trends across sessions.
 
 TOKEN BUDGET: You have a strict limit of approximately ${maxTokens} output tokens. To ensure you do not get cut off, you MUST limit your response to roughly ${Math.floor(maxTokens * 0.6)} words. Always finish on a complete sentence — never cut off mid-word or mid-sentence. If you are running long, wrap up cleanly and concisely.
 

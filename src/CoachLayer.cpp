@@ -272,6 +272,10 @@ void CoachLayer::fetchCoachingAdvice(const std::string& userMessage) {
     payload.set("attempt_count",    matjson::Value(tm.attemptCount));
     payload.set("current_gamemode", matjson::Value(gamemodeToString(tm.currentGamemode)));
     
+    // Add long term history
+    auto longTermHistory = tm.getLongTermHistory(5);
+    payload.set("long_term_history", matjson::Value(longTermHistory));
+    
     if (!userMessage.empty()) {
         payload.set("message", matjson::Value(userMessage));
     }

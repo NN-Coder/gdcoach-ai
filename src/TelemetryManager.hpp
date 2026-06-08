@@ -138,6 +138,12 @@ public:
     /// Return the list of level IDs that have saved memory files on disk.
     std::vector<int> getSavedLevelIDs();
 
+    /// Get the directory path for the current level.
+    std::filesystem::path getLevelDirectoryPath() const;
+
+    /// Read the long-term history for the current level (up to N latest sessions).
+    std::vector<matjson::Value> getLongTermHistory(size_t maxEntries = 5) const;
+
     // ── Read-only state ───────────────────────────────────────────────────────
     LevelInfo               levelInfo;
     std::vector<DeathRecord> deaths;

@@ -21,6 +21,30 @@ TelemetryManager& TelemetryManager::get() {
 // Mutation
 // ─────────────────────────────────────────────────────────────────────────────
 
+std::filesystem::path TelemetryManager::getLevelDirectoryPath() const {
+    if (levelInfo.levelID == 0 && levelInfo.name.empty()) {
+        return Mod::get()->getSaveDir() / "levels" / "unknown_0";
+    }
+    
+    std::string nameStr = levelInfo.name;
+    for (char& c : nameStr) {
+        if (!std::isalnum(c)) c = '_';
+        else c = static_cast<char>(std::tolower(c));
+    }
+    nameStr.erase(std::unique(nameStr.begin(), nameStr.end(), [](char a, char b) {
+        return a == '_' && b == '_';
+    }), nameStr.end());
+    if (!nameStr.empty() && nameStr.back() == '_') nameStr.pop_back();
+    if (!nameStr.empty() && nameStr.front() == '_') nameStr.erase(0, 1);
+    
+    // Official levels are 1-22, otherwise append ID
+    if (levelInfo.levelID > 22 || levelInfo.levelID <= 0) {
+        return Mod::get()->getSaveDir() / "levels" / fmt::format("{}_{}", nameStr, levelInfo.levelID);
+    } else {
+        return Mod::get()->getSaveDir() / "levels" / nameStr;
+    }
+}
+
 void TelemetryManager::reset() {
     deaths.clear();
     clicks.clear();
@@ -68,8 +92,8 @@ void TelemetryManager::setLevelInfo(const LevelInfo& info) {
     );
     
     // Ensure level directory exists
-    if (levelInfo.levelID != 0) {
-        auto dirPath = Mod::get()->getSaveDir() / fmt::format("level_{}", levelInfo.levelID);
+    if (levelInfo.levelID != 0 || !levelInfo.name.empty()) {
+        auto dirPath = getLevelDirectoryPath();
         std::error_code ec;
         std::filesystem::create_directories(dirPath, ec);
     }
@@ -93,9 +117,9 @@ void TelemetryManager::addChatMessage(const std::string& role, const std::string
 }
 
 void TelemetryManager::saveMemory() {
-    if (levelInfo.levelID == 0) return;
+    if (levelInfo.levelID == 0 && levelInfo.name.empty()) return;
     
-    auto savePath = Mod::get()->getSaveDir() / fmt::format("level_{}/memory.json", levelInfo.levelID);
+    auto savePath = getLevelDirectoryPath() / "memory.json";
     
     std::vector<matjson::Value> arr;
     for (const auto& msg : memory.history) {
@@ -118,9 +142,9 @@ void TelemetryManager::loadMemory() {
     memory.levelID = levelInfo.levelID;
     memory.history.clear();
     
-    if (levelInfo.levelID == 0) return;
+    if (levelInfo.levelID == 0 && levelInfo.name.empty()) return;
     
-    auto savePath = Mod::get()->getSaveDir() / fmt::format("level_{}/memory.json", levelInfo.levelID);
+    auto savePath = getLevelDirectoryPath() / "memory.json";
     
     std::ifstream file(savePath);
     if (file.is_open()) {
@@ -163,11 +187,11 @@ void TelemetryManager::startNewAttempt() {
 }
 
 void TelemetryManager::endSession() {
-    if (levelInfo.levelID == 0 || attemptSummaries.empty()) return;
+    if ((levelInfo.levelID == 0 && levelInfo.name.empty()) || attemptSummaries.empty()) return;
     
     // Capture level ID and save dir locally for thread-safety/callbacks
     int levelID = levelInfo.levelID;
-    auto historyPath = Mod::get()->getSaveDir() / fmt::format("level_{}/history.json", levelID);
+    auto historyPath = getLevelDirectoryPath() / "history.json";
     
     // Keep a local copy of attempt summaries and clear the main vector immediately
     std::vector<std::string> sessionAttempts = attemptSummaries;
@@ -287,9 +311,9 @@ void TelemetryManager::endSession() {
 }
 
 void TelemetryManager::saveLevelMetadata() {
-    if (levelInfo.levelID == 0) return;
+    if (levelInfo.levelID == 0 && levelInfo.name.empty()) return;
     
-    auto metaPath = Mod::get()->getSaveDir() / fmt::format("level_{}/metadata.json", levelInfo.levelID);
+    auto metaPath = getLevelDirectoryPath() / "metadata.json";
     
     // Only save if it doesn't exist
     if (std::filesystem::exists(metaPath)) return;
@@ -336,9 +360,28 @@ bool TelemetryManager::hasData() const {
 
 void TelemetryManager::clearMemoryForLevel(int levelID) {
     if (levelID == 0) return;
-    auto path = Mod::get()->getSaveDir() / fmt::format("level_{}", levelID);
+    auto levelsDir = Mod::get()->getSaveDir() / "levels";
     std::error_code ec;
-    std::filesystem::remove_all(path, ec);
+    for (auto const& entry : std::filesystem::directory_iterator(levelsDir, ec)) {
+        if (entry.is_directory()) {
+            auto metaPath = entry.path() / "metadata.json";
+            if (std::filesystem::exists(metaPath)) {
+                std::ifstream inFile(metaPath);
+                if (inFile.is_open()) {
+                    std::stringstream buffer;
+                    buffer << inFile.rdbuf();
+                    auto res = matjson::parse(buffer.str());
+                    if (res && res.unwrap().contains("levelID")) {
+                        int id = res.unwrap()["levelID"].asInt().unwrapOr(0);
+                        if (id == levelID) {
+                            std::filesystem::remove_all(entry.path(), ec);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Also clear in-memory history if it matches the current level
     if (memory.levelID == levelID) {
         memory.history.clear();
@@ -349,16 +392,19 @@ void TelemetryManager::clearMemoryForLevel(int levelID) {
 void TelemetryManager::clearAllMemory() {
     auto saveDir = Mod::get()->getSaveDir();
     std::error_code ec;
+    // Wipe old format if it exists
     for (auto const& entry : std::filesystem::directory_iterator(saveDir, ec)) {
         auto name = entry.path().filename().string();
         if (name.rfind("level_", 0) == 0 && entry.is_directory()) {
             std::filesystem::remove_all(entry.path(), ec);
         }
-        // Also remove old format if it exists
         if (name.rfind("memory_", 0) == 0 && name.size() > 12) {
             std::filesystem::remove(entry.path(), ec);
         }
     }
+    // Wipe new format
+    std::filesystem::remove_all(saveDir / "levels", ec);
+    
     memory.history.clear();
     log::info("[GDCoach] All level data cleared.");
 }
@@ -374,20 +420,60 @@ std::vector<int> TelemetryManager::getSavedLevelIDs() {
     std::vector<int> ids;
     auto saveDir = Mod::get()->getSaveDir();
     std::error_code ec;
+    
+    // Support legacy "level_ID"
     for (auto const& entry : std::filesystem::directory_iterator(saveDir, ec)) {
         auto name = entry.path().filename().string();
         if (name.rfind("level_", 0) == 0 && entry.is_directory()) {
             auto idStr = name.substr(6);
-            try {
-                ids.push_back(std::stoi(idStr));
-            } catch (...) {}
-        } else if (name.rfind("memory_", 0) == 0 && name.size() > 12) {
-            // Also include legacy format
-            auto idStr = name.substr(7, name.size() - 7 - 5);
-            try {
-                ids.push_back(std::stoi(idStr));
-            } catch (...) {}
+            try { ids.push_back(std::stoi(idStr)); } catch (...) {}
+        }
+    }
+    
+    // Support new "levels/X" structure
+    auto levelsDir = saveDir / "levels";
+    if (std::filesystem::exists(levelsDir)) {
+        for (auto const& entry : std::filesystem::directory_iterator(levelsDir, ec)) {
+            if (entry.is_directory()) {
+                auto metaPath = entry.path() / "metadata.json";
+                if (std::filesystem::exists(metaPath)) {
+                    std::ifstream inFile(metaPath);
+                    if (inFile.is_open()) {
+                        std::stringstream buffer;
+                        buffer << inFile.rdbuf();
+                        auto res = matjson::parse(buffer.str());
+                        if (res && res.unwrap().contains("levelID")) {
+                            ids.push_back(res.unwrap()["levelID"].asInt().unwrapOr(0));
+                        }
+                    }
+                }
+            }
         }
     }
     return ids;
+}
+
+std::vector<matjson::Value> TelemetryManager::getLongTermHistory(size_t maxEntries) const {
+    std::vector<matjson::Value> result;
+    if (levelInfo.levelID == 0 && levelInfo.name.empty()) return result;
+    
+    auto historyPath = getLevelDirectoryPath() / "history.json";
+    if (!std::filesystem::exists(historyPath)) return result;
+    
+    std::ifstream file(historyPath);
+    if (!file.is_open()) return result;
+    
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    file.close();
+    
+    auto parseRes = matjson::parse(buffer.str());
+    if (parseRes && parseRes.unwrap().isArray()) {
+        auto arr = parseRes.unwrap().asArray().unwrap();
+        size_t startIdx = (arr.size() > maxEntries) ? arr.size() - maxEntries : 0;
+        for (size_t i = startIdx; i < arr.size(); ++i) {
+            result.push_back(arr[i]);
+        }
+    }
+    return result;
 }
